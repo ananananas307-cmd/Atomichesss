@@ -3,17 +3,17 @@ import chess
 import chess.variant
 import chess.svg
 import random
-import base64
 import time
 from streamlit_image_coordinates import streamlit_image_coordinates
 
-# --- HIZLI AÇILIŞ AYARLARI ---
+# --- AYARLAR ---
 st.set_page_config(page_title="Atomic Hızlı", page_icon="⚡", layout="centered")
 
 st.markdown("""
     <style>
     .stButton>button {width: 100%; height: 3em; font-weight: bold; font-size: 20px;}
     h1 {text-align: center; margin-bottom: 0px;}
+    div[data-testid="stImage"] {display: block; margin-left: auto; margin-right: auto;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -21,11 +21,8 @@ st.title("⚡ Atomic Dokunmatik")
 
 # --- MANTIK ---
 def generate_fast_puzzle():
-    """Daha az deneme yaparak hızlıca pozisyon bulur"""
-    # 500 deneme yerine 100 deneme (Hız için)
     for _ in range(100):
         board = chess.variant.AtomicBoard()
-        # Oyun uzunluğunu kısalttık (Daha çabuk mat çıkar)
         moves_count = random.randint(5, 30)
         try:
             for _ in range(moves_count):
@@ -36,7 +33,6 @@ def generate_fast_puzzle():
             
             if board.is_game_over(): continue
 
-            # Mat var mı?
             solutions = []
             for move in board.legal_moves:
                 board.push(move)
@@ -50,14 +46,12 @@ def generate_fast_puzzle():
             pass
     return None, None
 
-# --- STATE ---
 if 'fen' not in st.session_state:
     st.session_state.fen = None
 if 'selected_square' not in st.session_state:
     st.session_state.selected_square = None
 
 # --- ANA EKRAN ---
-# Eğer puzzle yoksa "BAŞLA" butonu göster (Ekran donmasın diye)
 if not st.session_state.fen:
     st.info("Hazır olduğunda butona bas.")
     if st.button("🧩 PUZZLE BUL (BAŞLA)"):
@@ -70,11 +64,10 @@ if not st.session_state.fen:
             else:
                 st.error("Uygun pozisyon denk gelmedi, tekrar bas.")
 else:
-    # PUZZLE VARSA OYUNU GÖSTER
+    # PUZZLE GÖSTERİMİ
     board = chess.variant.AtomicBoard(st.session_state.fen)
     is_white = (board.turn == chess.WHITE)
     
-    # Bilgi
     turn_str = "BEYAZ" if is_white else "SİYAH"
     st.success(f"Sıra: {turn_str} | 1 Hamlede Mat Et!")
 
@@ -82,28 +75,30 @@ else:
     fill = {}
     if st.session_state.selected_square:
         sq = chess.parse_square(st.session_state.selected_square)
-        fill[sq] = "#ffe066cc" # Sarı renk
+        fill[sq] = "#ffe066cc"
 
-    svg = chess.svg.board(
+    svg_content = chess.svg.board(
         board, 
         size=350, 
         flipped=not is_white,
         fill=fill,
         coordinates=False
     )
-    b64 = base64.b64encode(svg.encode('utf-8')).decode("utf-8")
+    
+    # --- DÜZELTME BURADA: Resmi dosyaya yazıyoruz ---
+    image_path = "current_board.svg"
+    with open(image_path, "w") as f:
+        f.write(svg_content)
 
-    # Dokunmatik Tahta
+    # Dokunmatik Tahta (Artık dosyadan okuyor)
     coords = streamlit_image_coordinates(
-        f"data:image/svg+xml;base64,{b64}",
+        image_path,
         width=350,
         key="board_tap"
     )
 
-    # Tıklama İşlemleri
     if coords:
         x, y = coords['x'], coords['y']
-        # Koordinat hesabı
         sq_size = 350 / 8
         col = int(x // sq_size)
         row = int(y // sq_size)
@@ -115,46 +110,42 @@ else:
             file_idx = 7 - col
             rank_idx = row
             
-        clicked_sq = chess.square_name(chess.square(file_idx, rank_idx))
+        # Sınır kontrolü (Bazen kenara tıklanınca hata olmasın)
+        if 0 <= file_idx <= 7 and 0 <= rank_idx <= 7:
+            clicked_sq = chess.square_name(chess.square(file_idx, rank_idx))
 
-        # Mantık
-        if st.session_state.selected_square == clicked_sq:
-            st.session_state.selected_square = None # Seçimi kaldır
-            st.rerun()
-        
-        elif st.session_state.selected_square is None:
-            # Taş Seç
-            p = board.piece_at(chess.parse_square(clicked_sq))
-            if p and p.color == board.turn:
-                st.session_state.selected_square = clicked_sq
+            if st.session_state.selected_square == clicked_sq:
+                st.session_state.selected_square = None
                 st.rerun()
-        else:
-            # Hamle Yap
-            src = st.session_state.selected_square
-            tgt = clicked_sq
-            move_uci = f"{src}{tgt}"
             
-            # Piyon kontrol (Otomatik Vezir)
-            p = board.piece_at(chess.parse_square(src))
-            if p and p.piece_type == chess.PAWN:
-                if (src[1]=='7' and tgt[1]=='8') or (src[1]=='2' and tgt[1]=='1'):
-                    move_uci += 'q'
-
-            if move_uci in st.session_state.solutions:
-                st.balloons()
-                st.toast("🔥 DOĞRU! YENİSİ GELİYOR...", icon="✅")
-                time.sleep(1.5)
-                st.session_state.fen = None # Sıfırla
-                st.session_state.selected_square = None
-                st.rerun()
+            elif st.session_state.selected_square is None:
+                p = board.piece_at(chess.parse_square(clicked_sq))
+                if p and p.color == board.turn:
+                    st.session_state.selected_square = clicked_sq
+                    st.rerun()
             else:
-                st.toast("Yanlış veya Geçersiz Hamle", icon="❌")
-                st.session_state.selected_square = None
-                st.rerun()
+                src = st.session_state.selected_square
+                tgt = clicked_sq
+                move_uci = f"{src}{tgt}"
+                
+                p = board.piece_at(chess.parse_square(src))
+                if p and p.piece_type == chess.PAWN:
+                    if (src[1]=='7' and tgt[1]=='8') or (src[1]=='2' and tgt[1]=='1'):
+                        move_uci += 'q'
 
-    # Pas Geç Butonu
+                if move_uci in st.session_state.solutions:
+                    st.balloons()
+                    st.toast("🔥 DOĞRU! YENİSİ GELİYOR...", icon="✅")
+                    time.sleep(1.0)
+                    st.session_state.fen = None
+                    st.session_state.selected_square = None
+                    st.rerun()
+                else:
+                    st.toast("Yanlış Hamle", icon="❌")
+                    st.session_state.selected_square = None
+                    st.rerun()
+
     if st.button("Bu soruyu geç"):
         st.session_state.fen = None
         st.session_state.selected_square = None
         st.rerun()
-                
