@@ -1,3 +1,5 @@
 streamlit
 chess
+streamlit-image-coordinates
+
 
