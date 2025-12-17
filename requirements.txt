@@ -1,3 +1,3 @@
 streamlit
 chess
-streamlit-chessboard @ git+https://github.com/mbreach/streamlit-chessboard.git
+
